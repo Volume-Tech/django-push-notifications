@@ -8,6 +8,7 @@ from .settings import PUSH_NOTIFICATIONS_SETTINGS as SETTINGS
 CLOUD_MESSAGE_TYPES = (
 	("FCM", "Firebase Cloud Message"),
 	("GCM", "Google Cloud Message"),
+	("APN", "Apple Push Notification"),
 )
 
 BROWSER_TYPES = (
@@ -82,39 +83,6 @@ class GCMDeviceQuerySet(models.query.QuerySet):
 
 			return response
 
-
-class GCMDevice(Device):
-	# device_id cannot be a reliable primary key as fragmentation between different devices
-	# can make it turn out to be null and such:
-	# http://android-developers.blogspot.co.uk/2011/03/identifying-app-installations.html
-	device_id = HexIntegerField(
-		verbose_name=_("Device ID"), blank=True, null=True, db_index=True,
-		help_text=_("ANDROID_ID / TelephonyManager.getDeviceId() (always as hex)")
-	)
-	registration_id = models.TextField(verbose_name=_("Registration ID"), unique=SETTINGS["UNIQUE_REG_ID"])
-	cloud_message_type = models.CharField(
-		verbose_name=_("Cloud Message Type"), max_length=3,
-		choices=CLOUD_MESSAGE_TYPES, default="GCM",
-		help_text=_("You should choose FCM or GCM")
-	)
-	objects = GCMDeviceManager()
-
-	class Meta:
-		verbose_name = _("GCM device")
-
-	def send_message(self, message, **kwargs):
-		from .gcm import send_message as gcm_send_message
-
-		data = kwargs.pop("extra", {})
-		if message is not None:
-			data["message"] = message
-
-		return gcm_send_message(
-			self.registration_id, data, self.cloud_message_type,
-			application_id=self.application_id, **kwargs
-		)
-
-
 class APNSDeviceManager(models.Manager):
 	def get_queryset(self):
 		return APNSDeviceQuerySet(self.model)
@@ -141,6 +109,49 @@ class APNSDeviceQuerySet(models.query.QuerySet):
 				elif hasattr(r, "__getitem__"):
 					res += r
 			return res
+
+class GCMDevice(Device):
+	# device_id cannot be a reliable primary key as fragmentation between different devices
+	# can make it turn out to be null and such:
+	# http://android-developers.blogspot.co.uk/2011/03/identifying-app-installations.html
+	device_id = HexIntegerField(
+		verbose_name=_("Device ID"), blank=True, null=True, db_index=True,
+		help_text=_("ANDROID_ID / TelephonyManager.getDeviceId() (always as hex)")
+	)
+	registration_id = models.TextField(verbose_name=_("Registration ID"), unique=SETTINGS["UNIQUE_REG_ID"])
+	cloud_message_type = models.CharField(
+		verbose_name=_("Cloud Message Type"), max_length=3,
+		choices=CLOUD_MESSAGE_TYPES, default="GCM",
+		help_text=_("You should choose FCM, GCM or APN")
+	)
+	objects = models.Manager()
+	fcmobjects = GCMDeviceManager()
+	apnobjects = APNSDeviceManager()
+
+	class Meta:
+		verbose_name = _("GCM device")
+
+	def send_message(self, message, creds=None, **kwargs):
+		if self.cloud_message_type == "APN":
+			from .apns import apns_send_message
+
+			return apns_send_message(
+				registration_id=self.registration_id,
+				alert=message,
+				application_id=self.application_id, creds=creds,
+				**kwargs
+			)
+		else:
+			from .gcm import send_message as gcm_send_message
+
+			data = kwargs.pop("extra", {})
+			if message is not None:
+				data["message"] = message
+
+			return gcm_send_message(
+				self.registration_id, data, self.cloud_message_type,
+				application_id=self.application_id, **kwargs
+			)
 
 
 class APNSDevice(Device):
