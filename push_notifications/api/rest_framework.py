@@ -5,7 +5,7 @@ from rest_framework.serializers import ModelSerializer, Serializer, ValidationEr
 from rest_framework.viewsets import ModelViewSet
 
 from ..fields import UNSIGNED_64BIT_INT_MAX_VALUE, hex_re
-from ..models import APNSDevice, GCMDevice, WebPushDevice, WNSDevice
+from ..models import APNSDevice, GCMDevice, WebPushDevice, WNSDevice, FCMAPNDevice
 from ..settings import PUSH_NOTIFICATIONS_SETTINGS as SETTINGS
 
 
@@ -86,7 +86,33 @@ class APNSDeviceSerializer(UniqueRegistrationSerializerMixin, ModelSerializer):
 
 		return value
 
+class FCMAPNDeviceSerializer(UniqueRegistrationSerializerMixin, ModelSerializer):
 
+	device_id = HexIntegerField(
+		help_text="ANDROID_ID / TelephonyManager.getDeviceId() (e.g: 0x01)",
+		style={"input_type": "text"},
+		required=False,
+		allow_null=True
+	)
+	class Meta(DeviceSerializerMixin.Meta):
+		model = FCMAPNDevice
+		fields = (
+			"id", "name", "registration_id", "device_id", "active", "date_created",
+			"cloud_message_type", "application_id",
+		)
+		extra_kwargs = {"id": {"read_only": False, "required": False}}
+
+	def validate(self, data):
+		if data['cloud_message_type'] == 'APN':
+		# iOS device tokens are 256-bit hexadecimal (64 characters). In 2016 Apple is increasing
+		# iOS device tokens to 100 bytes hexadecimal (200 characters).
+			if hex_re.match(data['registration_id']) is None or len(data['registration_id']) not in (64, 200):
+				raise ValidationError("Registration ID (device token) is invalid")
+		else:
+			# device ids are 64 bit unsigned values
+			if data['device_id'] > UNSIGNED_64BIT_INT_MAX_VALUE:
+				raise ValidationError("Device ID is out of range")
+		return data
 
 class GCMDeviceSerializer(UniqueRegistrationSerializerMixin, ModelSerializer):
 	device_id = HexIntegerField(
@@ -184,6 +210,15 @@ class APNSDeviceViewSet(DeviceViewSetMixin, ModelViewSet):
 
 
 class APNSDeviceAuthorizedViewSet(AuthorizedMixin, APNSDeviceViewSet):
+	pass
+
+
+class FCMAPNDeviceViewSet(DeviceViewSetMixin, ModelViewSet):
+	queryset = FCMAPNDevice.objects.all()
+	serializer_class = FCMAPNDeviceSerializer
+
+
+class FCMAPNDeviceAuthorizedViewSet(AuthorizedMixin, FCMAPNDeviceViewSet):
 	pass
 
 
