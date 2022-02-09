@@ -122,7 +122,37 @@ class GCMDevice(Device):
 	cloud_message_type = models.CharField(
 		verbose_name=_("Cloud Message Type"), max_length=3,
 		choices=CLOUD_MESSAGE_TYPES, default="GCM",
-		help_text=_("You should choose FCM, GCM or APN")
+		help_text=_("You should choose FCM or GCM")
+	)
+	objects = GCMDeviceManager()
+
+	class Meta:
+		verbose_name = _("GCM device")
+
+	def send_message(self, message, **kwargs):
+		from .gcm import send_message as gcm_send_message
+
+		data = kwargs.pop("extra", {})
+		if message is not None:
+			data["message"] = message
+
+		return gcm_send_message(
+			self.registration_id, data, self.cloud_message_type,
+			application_id=self.application_id, **kwargs
+		)
+class FCMAPNDevice(Device):
+	# device_id cannot be a reliable primary key as fragmentation between different devices
+	# can make it turn out to be null and such:
+	# http://android-developers.blogspot.co.uk/2011/03/identifying-app-installations.html
+	device_id = HexIntegerField(
+		verbose_name=_("Device ID"), blank=True, null=True, db_index=True,
+		help_text=_("ANDROID_ID / TelephonyManager.getDeviceId() (always as hex)")
+	)
+	registration_id = models.TextField(verbose_name=_("Registration ID"), unique=SETTINGS["UNIQUE_REG_ID"])
+	cloud_message_type = models.CharField(
+		verbose_name=_("Cloud Message Type"), max_length=3,
+		choices=CLOUD_MESSAGE_TYPES, default="FCM",
+		help_text=_("You should choose FCM or APN")
 	)
 	objects = models.Manager()
 	fcmobjects = GCMDeviceManager()
